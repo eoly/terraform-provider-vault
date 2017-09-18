@@ -82,7 +82,7 @@ func awsSecretDataSourceRead(d *schema.ResourceData, meta interface{}) error {
 		return fmt.Errorf("No role found at %q; are you sure you're using the right path?", path)
 	}
 
-	d.SetId(secret.RequestID)
+	d.SetId(secret.LeaseID)
 	d.Set("access_key", secret.Data["access_key"])
 	d.Set("secret_key", secret.Data["secret_key"])
 	d.Set("security_token", secret.Data["security_token"])

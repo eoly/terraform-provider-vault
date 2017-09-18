@@ -2,6 +2,7 @@ package vault
 
 import (
 	"fmt"
+	"os"
 	"testing"
 
 	"github.com/hashicorp/terraform/helper/acctest"
@@ -11,39 +12,38 @@ import (
 
 func TestAccDataSourceAWSSecret(t *testing.T) {
 	mountPath := acctest.RandomWithPrefix("aws")
+	accessKey := os.Getenv("AWS_ACCESS_KEY_ID")
+	secretKey := os.Getenv("AWS_SECRET_ACCESS_KEY")
+	if accessKey == "" {
+		t.Skip("AWS_ACCESS_KEY_ID not set")
+	}
+	if secretKey == "" {
+		t.Skip("AWS_SECRET_ACCESS_KEY not set")
+	}
 	resource.Test(t, resource.TestCase{
 		Providers: testProviders,
 		PreCheck:  func() { testAccPreCheck(t) },
 		Steps: []resource.TestStep{
 			{
-				Config: testAccDataSourceAWSSecret_config(mountPath),
-				Check:  testAccDataSourceAWSSecret_check(mountPath),
+				Config:             testAccDataSourceAWSSecret_configBasic(mountPath, accessKey, secretKey),
+				Check:              testAccDataSourceAWSSecret_check(mountPath),
+				ExpectNonEmptyPlan: true,
 			},
 		},
 	})
 }
 
-func testAccDataSourceAWSSecret_config(mountPath string) string {
+func testAccDataSourceAWSSecret_configBasic(mountPath, accessKey, secretKey string) string {
 	return fmt.Sprintf(`
-resource "vault_mount" "aws" {
+resource "vault_aws_secret_backend" "aws" {
     path = "%s"
-    type = "aws"
     description = "Obtain AWS credentials."
-}
-
-resource "vault_generic_secret" "root" {
-    path = "${vault_mount.aws.path}/config/root"
-    data_json = <<EOT
-{
-    "access_key": "%s",
-    "secret_key": "%s",
-    "region": "us-east-1"
-}
-EOT
+    access_key = "%s"
+    secret_key = "%s"
 }
 
 resource "vault_generic_secret" "policy" {
-    path = "${vault_mount.aws.path}/roles/test"
+    path = "${vault_aws_secret_backend.aws.path}/roles/test"
     data_json = <<EOT
 {
     "policy": "{\"Version\": \"2012-10-17\", \"Statement\": [{\"Effect\": \"Allow\", \"Action\": \"iam:*\", \"Resource\": \"*\"}]}"
@@ -52,15 +52,14 @@ EOT
 }
 
 data "vault_aws_secret" "test" {
-    path = "${vault_mount.aws.path}/creds/test"
-    depends_on = ["vault_generic_secret.policy", "vault_generic_secret.root"]
-}
-`, mountPath, accessKey, secretKey)
+    path = "${vault_aws_secret_backend.aws.path}/creds/test"
+    depends_on = ["vault_generic_secret.policy"]
+}`, mountPath, accessKey, secretKey)
 }
 
 func testAccDataSourceAWSSecret_check(mountPath string) resource.TestCheckFunc {
 	return func(s *terraform.State) error {
-		resourceState := s.Modules[0].Resources["data.vault_generic_secret.test"]
+		resourceState := s.Modules[0].Resources["data.vault_aws_secret.test"]
 		if resourceState == nil {
 			return fmt.Errorf("resource not found in state %v", s.Modules[0].Resources)
 		}
@@ -68,15 +67,6 @@ func testAccDataSourceAWSSecret_check(mountPath string) resource.TestCheckFunc {
 		iState := resourceState.Primary
 		if iState == nil {
 			return fmt.Errorf("resource has no primary instance")
-		}
-
-		wantJson := `{"zip":"zap"}`
-		if got, want := iState.Attributes["data_json"], wantJson; got != want {
-			return fmt.Errorf("data_json contains %s; want %s", got, want)
-		}
-
-		if got, want := iState.Attributes["data.zip"], "zap"; got != want {
-			return fmt.Errorf("data[\"zip\"] contains %s; want %s", got, want)
 		}
 
 		return nil
