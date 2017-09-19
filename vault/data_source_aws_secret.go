@@ -15,12 +15,29 @@ func awsSecretDataSource() *schema.Resource {
 		Read: awsSecretDataSourceRead,
 
 		Schema: map[string]*schema.Schema{
-			"path": {
+			"backend": {
 				Type:        schema.TypeString,
 				Required:    true,
-				Description: "Full path from which the secret will be read.",
+				Description: "AWS Secret Backend to read credentials from.",
 			},
-
+			"role": {
+				Type:        schema.TypeString,
+				Required:    true,
+				Description: "AWS Secret Role to read credentials from.",
+			},
+			"type": {
+				Type:        schema.TypeString,
+				Optional:    true,
+				Default:     "creds",
+				Description: "Type of credentials to read. Must be either 'creds' for Access Key and Secret Key, or 'sts' for STS.",
+				ValidateFunc: func(v interface{}, k string) (ws []string, errs []error) {
+					value := v.(string)
+					if value != "sts" && value != "creds" {
+						errs = append(errs, fmt.Errorf("type must be creds or sts"))
+					}
+					return
+				},
+			},
 			"access_key": {
 				Type:        schema.TypeString,
 				Computed:    true,
@@ -69,7 +86,10 @@ func awsSecretDataSource() *schema.Resource {
 func awsSecretDataSourceRead(d *schema.ResourceData, meta interface{}) error {
 	client := meta.(*api.Client)
 
-	path := d.Get("path").(string)
+	backend := d.Get("backend").(string)
+	credType := d.Get("type").(string)
+	role := d.Get("role").(string)
+	path := backend + "/" + credType + "/" + role
 
 	log.Printf("[DEBUG] Reading %q from Vault", path)
 	secret, err := client.Logical().Read(path)
@@ -79,7 +99,7 @@ func awsSecretDataSourceRead(d *schema.ResourceData, meta interface{}) error {
 	log.Printf("[DEBUG] Read %q from Vault", path)
 
 	if secret == nil {
-		return fmt.Errorf("No role found at %q; are you sure you're using the right path?", path)
+		return fmt.Errorf("No role found at %q; are you sure you're using the right backend and role?", path)
 	}
 
 	d.SetId(secret.LeaseID)

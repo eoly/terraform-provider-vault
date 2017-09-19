@@ -42,18 +42,16 @@ resource "vault_aws_secret_backend" "aws" {
     secret_key = "%s"
 }
 
-resource "vault_generic_secret" "policy" {
-    path = "${vault_aws_secret_backend.aws.path}/roles/test"
-    data_json = <<EOT
-{
-    "policy": "{\"Version\": \"2012-10-17\", \"Statement\": [{\"Effect\": \"Allow\", \"Action\": \"iam:*\", \"Resource\": \"*\"}]}"
-}
-EOT
+resource "vault_aws_secret_role" "role" {
+    backend = "${vault_aws_secret_backend.aws.path}"
+    name = "test"
+    policy = "{\"Version\": \"2012-10-17\", \"Statement\": [{\"Effect\": \"Allow\", \"Action\": \"iam:*\", \"Resource\": \"*\"}]}"
 }
 
 data "vault_aws_secret" "test" {
-    path = "${vault_aws_secret_backend.aws.path}/creds/test"
-    depends_on = ["vault_generic_secret.policy"]
+    backend = "${vault_aws_secret_backend.aws.path}"
+    role = "${vault_aws_secret_role.role.name}"
+    type = "creds"
 }`, mountPath, accessKey, secretKey)
 }
 
